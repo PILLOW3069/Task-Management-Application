@@ -1,0 +1,50 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:17.5
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: tasktracker_db
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: task
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./tasktracker-backend
+    container_name: springboot
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tasktracker_db
+      SPRING_DATASOURCE_USERNAME: tracker
+      SPRING_DATASOURCE_PASSWORD: task
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+
+  frontend:
+    build:
+      context: ./tasktracker-frontend
+    container_name: react-app
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
