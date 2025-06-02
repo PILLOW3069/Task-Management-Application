@@ -18,8 +18,10 @@ import org.springframework.stereotype.Service;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -36,7 +38,6 @@ public class NotificationService {
     @Autowired
     private UserRepository userRepository;
 
-
     @Autowired
     private NotificationRepository notificationRepository;
 
@@ -52,9 +53,19 @@ public class NotificationService {
                 .toInstant()
                 .toEpochMilli();
 
+        // Merge owner and collaborators into one list of user IDs
+        List<Long> allUserIds = new ArrayList<>();
+        allUserIds.add(task.getUser().getUser_id()); // or getUserId()
+
+        allUserIds.addAll(
+                task.getCollaborators().stream()
+                        .map(collaborator -> collaborator.getUser_id())
+                        .collect(Collectors.toList())
+        );
+
         NotificationPayload payload = new NotificationPayload(
-                task.getUser().getUser_id(),
-                task.getTask_id(),
+                allUserIds,
+                task.getTask_id(), // or getTask_id()
                 task.getTitle()
         );
 
@@ -77,23 +88,25 @@ public class NotificationService {
                     continue;
                 }
 
-                Task task = taskRepository.findById(payload.getTaskId())
-                        .orElseThrow(() -> new RuntimeException("Task not found"));
+                // For each user ID in the payload, create a notification
+                for (Long userId : payload.getUserIds()) {
+                    Task task = taskRepository.findById(payload.getTaskId())
+                            .orElseThrow(() -> new RuntimeException("Task not found"));
 
-                User user = userRepository.findById(payload.getUserId())
-                        .orElseThrow(() -> new RuntimeException("User not found"));
+                    User user = userRepository.findById(userId)
+                            .orElseThrow(() -> new RuntimeException("User not found"));
 
-                Notification notification = Notification.builder()
-                        .user(user)
-                        .task(task)
-                        .title("Upcoming Task")
-                        .message("You have an upcoming task: " + payload.getTaskTitle())
-                        .isRead(false)
-                        .createdAt(LocalDateTime.now())
-                        .build();
+                    Notification notification = Notification.builder()
+                            .user(user)
+                            .task(task)
+                            .title("Upcoming Task")
+                            .message("You have an upcoming task: " + payload.getTaskTitle())
+                            .isRead(false)
+                            .createdAt(LocalDateTime.now())
+                            .build();
 
-                notificationRepository.save(notification);
-
+                    notificationRepository.save(notification);
+                }
 
                 zSetOps.remove(NOTIFICATION_QUEUE, obj);
                 log.info("Processed and removed notification: {}", payload);
@@ -150,17 +163,30 @@ public class NotificationService {
     }
 
     @Data
-    @AllArgsConstructor
     @NoArgsConstructor
     public static class NotificationPayload implements Serializable {
-        private Long userId;
+        private List<Long> userIds; // For collaborators, use a list
         private Long taskId;
         private String taskTitle;
+
+        // Constructor for multiple user IDs
+        public NotificationPayload(List<Long> userIds, Long taskId, String taskTitle) {
+            this.userIds = userIds;
+            this.taskId = taskId;
+            this.taskTitle = taskTitle;
+        }
+
+        // Optional: Constructor for single user ID (if you want backward compatibility)
+        public NotificationPayload(Long userId, Long taskId, String taskTitle) {
+            this.userIds = List.of(userId); // Java 9+ or use Arrays.asList(userId)
+            this.taskId = taskId;
+            this.taskTitle = taskTitle;
+        }
 
         @Override
         public String toString() {
             return "NotificationPayload{" +
-                    "userId=" + userId +
+                    "userIds=" + userIds +
                     ", taskId=" + taskId +
                     ", taskTitle='" + taskTitle + '\'' +
                     '}';
